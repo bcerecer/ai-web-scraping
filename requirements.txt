@@ -1,0 +1,8 @@
+firecrawl-py
+openai
+python-dotenv
+pandas
+openpyxl
+requests
+beautifulsoup4
+tiktoken
