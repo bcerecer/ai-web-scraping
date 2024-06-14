@@ -5,4 +5,6 @@ pandas
 openpyxl
 requests
 beautifulsoup4
+crewai
+crewai_tools
 tiktoken

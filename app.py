@@ -1,4 +1,5 @@
 from beautifulsoup_crawler import scrape_beautiful_soup
+from crewai_crawler import scrape_crewai
 from firecrawl_crawler import scrape_firecrawl
 from datetime import datetime
 from dotenv import load_dotenv
@@ -54,7 +55,7 @@ def save_raw_data(raw_data, timestamp, output_folder):
         f.write(raw_data)
     print(f"Raw data saved to {raw_output_path}")
 
-def openai_formatted_data(crawler, data, fields=None):
+def openai_formatted_data(crawler, data, system_message, user_message):
     # Check if the data exceeds 10,000 words
     if len(data.split()) > 10000:
         print(f"Invalid raw data for {crawler}, raw data is over 10k tokens!")
@@ -62,17 +63,13 @@ def openai_formatted_data(crawler, data, fields=None):
 
     load_dotenv()
     client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-    
-    system_message = """You are an intelligent text extraction and conversion assistant. Your task is to extract structured information from the given text and convert it into a pure JSON format. The JSON should contain only the structured data extracted from the text, with no additional commentary, explanations, or extraneous information. You could encounter cases where you can't find the data of the fields you have to extract or the data will be in a foreign language. Please process the following text and provide the output in pure JSON format with no words before or after the JSON:"""
-    
-    user_message = f"Extract the following information from the provided text:\nPage content:\n\n{data}\n\nInformation to extract: {fields}"
 
     response = client.chat.completions.create(
         model="gpt-4o",
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system_message},
-            {"role": "user", "content": user_message}
+            {"role": "user", "content": f"{user_message} + \n\n From the provided text: {data}"}
         ]
     )
 
@@ -97,20 +94,7 @@ def save_formatted_data(formatted_data, timestamp, output_folder):
         json.dump(formatted_data, f, indent=4)
     print(f"Formatted data saved to {output_path}")
 
-    if isinstance(formatted_data, dict) and len(formatted_data) == 1:
-        key = next(iter(formatted_data))
-        formatted_data = formatted_data[key]
-
-    if isinstance(formatted_data, dict):
-        formatted_data = [formatted_data]
-
-    df = pd.DataFrame(formatted_data)
-    excel_output_path = os.path.join(output_folder, f'sorted_data_{timestamp}.xlsx')
-    df.to_excel(excel_output_path, index=False)
-    print(f"Formatted data saved to Excel at {excel_output_path}")
-
 def save_csv_data(raw_data, openai_formatted_data, output_folder):
-    print("save_csv_data called")
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     save_raw_data(raw_data, timestamp, output_folder)
     if openai_formatted_data is not None: 
@@ -156,26 +140,33 @@ if __name__ == "__main__":
         print("No valid URL and fields provided. Exiting program.")
     else:
         try:
+            system_message = """You are an intelligent text extraction and conversion assistant. Your task is to extract structured information from the given text and convert it into a pure JSON format. The JSON should contain only the structured data extracted from the text, with no additional commentary, explanations, or extraneous information. You could encounter cases where you can't find the data of the fields you have to extract or the data will be in a foreign language. Please process the following text and provide the output in pure JSON format with no words before or after the JSON:"""
+            user_message = f"Extract the following information {fields} "
             print(f"Scraping {url} for fields: {fields}")
             # Firecrawl
             crawler = 'firecrawl'
             firecrawl_result = scrape_firecrawl(url)
-            firecrawl_formatted_data = openai_formatted_data(crawler, firecrawl_result['raw_data'], fields)
+            firecrawl_formatted_data = openai_formatted_data(crawler, firecrawl_result['raw_data'], system_message, user_message)
             save_csv_data(firecrawl_result['raw_data'], firecrawl_formatted_data, f'output/{crawler}')
             # Jina AI
             crawler = 'jina'
             jina_result = scrape_jina(url)
-            jina_formatted_data = openai_formatted_data(crawler, jina_result['raw_data'], fields)
+            jina_formatted_data = openai_formatted_data(crawler, jina_result['raw_data'], system_message, user_message)
             save_csv_data(jina_result['raw_data'], jina_formatted_data, f'output/{crawler}')
             # Beautiful Soup
             crawler = 'beautiful-soup'
             beautiful_soup_result = scrape_beautiful_soup(url)
-            beautiful_soup_formatted_data = openai_formatted_data(crawler, beautiful_soup_result['raw_data'], fields)
+            beautiful_soup_formatted_data = openai_formatted_data(crawler, beautiful_soup_result['raw_data'], system_message, user_message)
             save_csv_data(beautiful_soup_result['raw_data'], beautiful_soup_formatted_data, f'output/{crawler}')
+            # CrewAI
+            crawler = 'crewai'
+            crewai_result = scrape_crewai(url, f"{user_message} from the url: {url}", system_message)
+            save_csv_data(crewai_result['raw_data'], crewai_result['raw_data'], f'output/{crawler}')
             # Create comparison csv
             create_comparison_csv()
             add_csv_row("Firecrawl", firecrawl_result, firecrawl_formatted_data)
             add_csv_row("Jina AI", jina_result, jina_formatted_data)
             add_csv_row("Beautiful Soup", beautiful_soup_result, beautiful_soup_formatted_data)
+            add_csv_row("CrewAI", crewai_result, crewai_result['raw_data'])
         except Exception as e:
             print(f"An error occurred: {e}")
